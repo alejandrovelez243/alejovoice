@@ -1,0 +1,16 @@
+# Swift / SPM
+.build/
+*.xcodeproj
+*.xcworkspace
+
+# Build output
+dist/
+
+# whisper.cpp vendored clone (see README: clone + build locally)
+vendor/
+
+# macOS
+.DS_Store
+
+# Claude
+.claude/
