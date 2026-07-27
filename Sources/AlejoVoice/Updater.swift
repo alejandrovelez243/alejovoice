@@ -9,6 +9,8 @@ final class Updater: NSObject, ObservableObject {
     static let shared = Updater()
 
     static let repository = "alejandrovelez243/alejovoice"
+    /// Version-less asset uploaded by the release workflow.
+    static let updateAssetName = "AlejoVoice-arm64.zip"
     private static let label = "com.alejo.alejovoice"
 
     enum State: Equatable {
@@ -60,7 +62,11 @@ final class Updater: NSObject, ObservableObject {
                 let tag = (json["tag_name"] as? String) ?? ""
                 let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
                 let assets = (json["assets"] as? [[String: Any]]) ?? []
-                let zip = assets.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }
+                // Releases carry both a versioned zip and a version-less copy (the one
+                // behind the permanent /releases/latest/download link). Prefer the
+                // stable name; fall back to whatever zip is attached.
+                let zip = assets.first { ($0["name"] as? String) == Self.updateAssetName }
+                    ?? assets.first { ($0["name"] as? String)?.hasSuffix(".zip") == true }
 
                 guard !latest.isEmpty else {
                     self.state = .failed("Release sin número de versión.")
@@ -141,6 +147,10 @@ final class Updater: NSObject, ObservableObject {
 
             // Refuse anything that is not a valid, correctly-identified AlejoVoice.
             try Self.run("/usr/bin/codesign", ["--verify", "--deep", newApp.path])
+            // Downloads can carry com.apple.quarantine; on an app without a Developer ID
+            // signature that turns into Gatekeeper's "could not verify" block on launch.
+            // The bundle was just signature-verified above, so clear it.
+            try? Self.run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", newApp.path])
             let plist = newApp.appendingPathComponent("Contents/Info.plist")
             guard let info = NSDictionary(contentsOf: plist) as? [String: Any],
                   info["CFBundleIdentifier"] as? String == Bundle.main.bundleIdentifier else {

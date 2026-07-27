@@ -76,6 +76,16 @@ jobs:
         # no Finder session on the runner to author one.
         run: ./scripts/build_app.sh
 
+      - name: Add version-less copies
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        # GitHub serves /releases/latest/download/<asset> as a permanent link to the
+        # newest release, but only if the file name never changes. These copies are
+        # what the download button and the updater point at — no moving git tag needed.
+        run: |
+          cp "dist/AlejoVoice-$VERSION-arm64.dmg" dist/AlejoVoice-arm64.dmg
+          cp "dist/AlejoVoice-$VERSION-arm64.zip" dist/AlejoVoice-arm64.zip
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,7 +95,15 @@ jobs:
           NOTES=$(cat <<EOF
           **Instalación nueva:** descarga \`AlejoVoice-$VERSION-arm64.dmg\`, ábrelo y arrastra la app a Aplicaciones.
 
-          **Ya lo tienes instalado:** no descargues nada — AlejoVoice → Ajustes → *Buscar actualizaciones*.
+          Al abrirla por primera vez macOS dirá *"Apple could not verify AlejoVoice"*: la app no está notarizada (eso requiere cuenta de developer de pago) y viene marcada en cuarentena por el navegador. Quita la marca una vez:
+
+          \`\`\`sh
+          xattr -dr com.apple.quarantine /Applications/AlejoVoice.app
+          \`\`\`
+
+          O por UI: *Done* → Ajustes del Sistema → Privacidad y seguridad → **Abrir de todas formas**.
+
+          **Ya lo tienes instalado:** no descargues nada — AlejoVoice → Ajustes → *Buscar actualizaciones* (esa vía no pasa por Gatekeeper).
 
           macOS 13+, Apple Silicon. El \`.zip\` es el payload que usa el updater interno.
           EOF

@@ -18,9 +18,17 @@ Vive en la barra de menú (icono de onda de sonido). Desde ahí: iniciar/detener
 
 ## Instalar
 
-Descarga el DMG de la [última release](https://github.com/alejandrovelez243/alejovoice/releases/latest), ábrelo y arrastra AlejoVoice a Aplicaciones. Solo la primera vez.
+### [⬇︎ Descargar AlejoVoice (Apple Silicon)](https://github.com/alejandrovelez243/alejovoice/releases/latest/download/AlejoVoice-arm64.dmg)
 
-La app va firmada sin cuenta de developer, así que macOS puede bloquearla al abrirla: clic derecho → Abrir, o Ajustes del Sistema → Privacidad y seguridad → "Abrir de todas formas".
+Ese enlace apunta siempre a la última versión publicada (GitHub resuelve `releases/latest/download/…` a la release más reciente, y el workflow sube una copia con nombre fijo para eso). Ábrelo y arrastra AlejoVoice a Aplicaciones. Solo la primera vez.
+
+La primera vez macOS dirá **"Apple could not verify AlejoVoice"**: la app no está notarizada (eso requiere cuenta de developer de pago) y el navegador la marcó en cuarentena. Quita la marca una vez:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/AlejoVoice.app
+```
+
+O por UI: *Done* en el diálogo → Ajustes del Sistema → Privacidad y seguridad → **Abrir de todas formas**. Las actualizaciones desde la propia app no pasan por Gatekeeper, así que esto es solo para la instalación inicial.
 
 Al arrancar desde `/Applications` la app se registra sola como agente de login (`~/Library/LaunchAgents/com.alejo.alejovoice.plist`): arranca al iniciar sesión y vuelve si se cae. "Salir de AlejoVoice" desde el menú la deja cerrada.
 
