@@ -16,38 +16,45 @@ Vive en la barra de menú (icono de onda de sonido). Desde ahí: iniciar/detener
 - Descarga el modelo Whisper (`large-v3-turbo-q5_0`, ~547 MB) una sola vez → `~/Library/Application Support/AlejoVoice/models/`.
 - Pide permisos: **Micrófono** y **Accesibilidad** (necesario para el atajo global y el auto-paste). Concédelos en Ajustes del Sistema → Privacidad y seguridad.
 
-## Instalación y actualizaciones
+## Instalar
 
-Un solo comando instala **y** actualiza, siempre en `/Applications/AlejoVoice.app` (mismo bundle id, misma ruta → macOS lo ve como actualización, no como app nueva; no hay que borrar la vieja ni montar DMG):
+Descarga el DMG de la [última release](https://github.com/alejandrovelez243/alejovoice/releases/latest), ábrelo y arrastra AlejoVoice a Aplicaciones. Solo la primera vez.
+
+La app va firmada sin cuenta de developer, así que macOS puede bloquearla al abrirla: clic derecho → Abrir, o Ajustes del Sistema → Privacidad y seguridad → "Abrir de todas formas".
+
+Al arrancar desde `/Applications` la app se registra sola como agente de login (`~/Library/LaunchAgents/com.alejo.alejovoice.plist`): arranca al iniciar sesión y vuelve si se cae. "Salir de AlejoVoice" desde el menú la deja cerrada.
+
+## Actualizar
+
+**AlejoVoice → Ajustes → Buscar actualizaciones.** Lee la última release de GitHub, descarga el `.zip`, reemplaza la app en sitio y se reinicia. No hay que bajar DMG ni borrar la versión vieja.
+
+## Publicar una versión (para el autor)
 
 ```bash
-./scripts/setup_signing.sh   # una sola vez: identidad de firma estable
-./scripts/install.sh         # build + actualizar en sitio + agente de login
+./scripts/release.sh 1.2.0            # VERSION + tag + push → CI construye y publica
+./scripts/release.sh 1.2.0 --local    # construir y publicar desde este Mac
 ```
 
-`install.sh` cierra la instancia en marcha, reemplaza el bundle en sitio y vuelve a arrancar. Instala también un LaunchAgent (`~/Library/LaunchAgents/com.alejo.alejovoice.plist`) que arranca la app al iniciar sesión y la reinicia si se cae — "Salir de AlejoVoice" desde el menú sí la deja cerrada. Usa `./scripts/install.sh --no-agent` si no quieres eso.
+GitHub Actions (`.github/workflows/release.yml`) compila en un runner arm64 y sube el DMG y el zip a la release del tag. Eso es lo que ve el botón "Buscar actualizaciones".
 
-Para subir versión: edita `VERSION` (ej. `1.2.0`) y corre `install.sh`. `build_app.sh --dmg` genera un DMG con el número de versión si quieres distribuirlo.
+Firma: por defecto ad-hoc, y una firma ad-hoc cambia en cada build, así que macOS vuelve a pedir Micrófono y Accesibilidad tras cada actualización. Para evitarlo, una vez:
 
-Sin `setup_signing.sh` la app va firmada ad-hoc y su identidad cambia en cada build: macOS vuelve a pedir permisos de Micrófono y Accesibilidad cada vez que actualizas.
+```bash
+./scripts/setup_signing.sh            # identidad self-signed estable en el llavero
+./scripts/export_signing_secrets.sh   # la misma identidad como secrets de Actions
+```
 
 ## Build desde código
 
 Requisitos: macOS 13+, Apple Silicon, Swift 6+, cmake (`brew install cmake`).
 
 ```bash
-# 1. Compilar whisper.cpp (una vez)
-git clone --depth 1 https://github.com/ggml-org/whisper.cpp vendor/whisper.cpp
-cmake -S vendor/whisper.cpp -B vendor/whisper.cpp/build \
-  -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-  -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON
-cmake --build vendor/whisper.cpp/build -j --target whisper-cli
-
-# 2. App (añade --dmg para generar también el DMG)
-./scripts/build_app.sh
+./scripts/bootstrap_whisper.sh   # clona y compila whisper.cpp (commit pinneado)
+./scripts/build_app.sh           # app + DMG + zip en dist/
+./scripts/update.sh              # actualiza /Applications con el working copy (dev)
 ```
 
-Salida en `dist/`.
+`build_app.sh --no-dmg` salta el DMG; `--restyle` re-genera el layout de la ventana del DMG con Finder y lo guarda en `scripts/dmg/DS_Store` (lo que permite que CI produzca el mismo DMG sin sesión gráfica).
 
 ## Arquitectura
 
@@ -58,3 +65,5 @@ Salida en `dist/`.
 - `DictationController` — segmenta por pausas de voz (~0.8 s) y transcribe cada segmento mientras sigues hablando; silencio de 2.5 s = auto-stop y pega de inmediato.
 - `Paster` — escribe el texto **sin tocar el portapapeles**: inserción vía Accesibilidad (`kAXSelectedText`) y, si la app no la acepta, teclas Unicode sintéticas. El portapapeles solo se usa si falta el permiso de Accesibilidad.
 - `RecordingPanel` — panel transparente no-activante con orbe estilo Siri (el foco se queda en tu app).
+- `Updater` — lee la última release vía API de GitHub, descarga el zip, verifica firma y bundle id, y delega el reemplazo a un script suelto (una app no puede sobrescribirse a sí misma en marcha).
+- `LoginAgent` — la app instala su propio LaunchAgent al arrancar desde `/Applications`.

@@ -1,0 +1,98 @@
+name: Release
+
+# Push a tag (scripts/release.sh does it) and this builds the app, the installer DMG
+# and the update zip, then publishes them as a GitHub release. The in-app updater
+# reads that release, so this workflow is what ships updates.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and release (e.g. v1.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    # arm64 runner: the app is Apple Silicon only.
+    runs-on: macos-15
+    env:
+      # `secrets` is not readable from a step-level `if`, so surface it as job env.
+      HAS_SIGNING_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Resolve version
+        id: version
+        run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache whisper.cpp build
+        uses: actions/cache@v4
+        with:
+          path: vendor/whisper.cpp
+          # Keyed on the pinned commit inside the bootstrap script.
+          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/bootstrap_whisper.sh') }}
+
+      - name: Build whisper.cpp
+        run: ./scripts/bootstrap_whisper.sh
+
+      # Optional: sign with the same self-signed identity used locally, so updates keep
+      # the user's Microphone/Accessibility grants. Without these secrets the build is
+      # ad-hoc signed and macOS re-asks for permissions after each update.
+      # Create them with scripts/export_signing_secrets.sh.
+      - name: Import signing identity
+        if: env.HAS_SIGNING_CERT == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign -A
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          # A self-signed identity must be trusted for code signing or codesign
+          # refuses to build a chain. The runner is ephemeral, so trusting it in the
+          # system keychain is safe here.
+          openssl pkcs12 -in "$RUNNER_TEMP/cert.p12" -clcerts -nokeys \
+            -passin pass:"$MACOS_CERT_PASSWORD" -out "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign \
+            -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/cert.pem"
+
+      - name: Build app, DMG and update zip
+        # The DMG window layout comes from the committed scripts/dmg/DS_Store — there is
+        # no Finder session on the runner to author one.
+        run: ./scripts/build_app.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          NOTES=$(cat <<EOF
+          **Instalación nueva:** descarga \`AlejoVoice-$VERSION-arm64.dmg\`, ábrelo y arrastra la app a Aplicaciones.
+
+          **Ya lo tienes instalado:** no descargues nada — AlejoVoice → Ajustes → *Buscar actualizaciones*.
+
+          macOS 13+, Apple Silicon. El \`.zip\` es el payload que usa el updater interno.
+          EOF
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.dmg dist/*.zip --clobber
+          else
+            gh release create "$TAG" dist/*.dmg dist/*.zip \
+              --title "AlejoVoice $VERSION" --notes "$NOTES"
+          fi

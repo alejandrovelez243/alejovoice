@@ -33,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.start()
 
         requestAccessibilityIfNeeded()
+        // Launch at login + come back from a crash. No-op unless running from
+        // /Applications, so a copy launched from the DMG never registers itself.
+        LoginAgent.ensureInstalled()
 
         if ModelManager.isModelInstalled {
             WhisperEngine.shared.preload()
@@ -52,12 +55,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Iniciar / detener dictado", action: #selector(menuToggle), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Ajustes…", action: #selector(openSettings), keyEquivalent: ",")
+        menu.addItem(withTitle: "Buscar actualizaciones…", action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Salir de AlejoVoice", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         statusItem.menu = menu
     }
 
     @objc private func menuToggle() { toggle() }
+
+    @MainActor
+    @objc private func checkForUpdates() {
+        openSettings()
+        Updater.shared.check()
+    }
 
     @objc private func openSettings() {
         if settingsWindow == nil {

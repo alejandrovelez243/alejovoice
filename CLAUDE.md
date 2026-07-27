@@ -9,18 +9,17 @@ AlejoVoice — local voice dictation menu-bar app for macOS (Apple Silicon only)
 ## Commands
 
 ```bash
-# One-time: build the vendored whisper.cpp static libs the Swift package links against.
-# vendor/ is gitignored — a fresh clone MUST do this before anything compiles.
-git clone --depth 1 https://github.com/ggml-org/whisper.cpp vendor/whisper.cpp
-cmake -S vendor/whisper.cpp -B vendor/whisper.cpp/build \
-  -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
-  -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON
-cmake --build vendor/whisper.cpp/build -j --target whisper-cli
+# One-time per checkout: clone + build the vendored whisper.cpp static libs the Swift
+# package links against (pinned commit). vendor/ is gitignored, so nothing compiles
+# before this runs. CI runs the same script.
+./scripts/bootstrap_whisper.sh
 
 swift build -c release --arch arm64   # fast compile check
-./scripts/build_app.sh                # dist/AlejoVoice.app (add --dmg for a DMG)
-./scripts/setup_signing.sh            # one-time, per machine (see Signing)
-./scripts/install.sh                  # build + update /Applications in place + login agent
+./scripts/build_app.sh                # dist/: app + DMG + update zip (--no-dmg, --restyle)
+./scripts/update.sh                   # update /Applications from the working copy (dev)
+./scripts/release.sh 1.2.0            # VERSION + tag + push → CI builds and publishes
+./scripts/setup_signing.sh            # one-time per machine (see Signing)
+./scripts/export_signing_secrets.sh   # same identity into Actions secrets
 ```
 
 `swift build` must be `--arch arm64` — the linker flags in `Package.swift` point at arm64-only static libs. Expect `built for newer 'macOS' version (26.0)` linker warnings from the ggml objects; harmless.
@@ -55,10 +54,17 @@ Facts that are not obvious from any single file:
 
 Microphone (recording) and Accessibility (global hotkey monitor + text insertion) are both required. Missing Accessibility silently degrades the app to the clipboard fallback path, so when debugging "text didn't appear", check `AXIsProcessTrusted()` first.
 
-## Signing, versioning, updates
+## Distribution: install once, update in place
 
-`VERSION` at the repo root is the single source of truth — `build_app.sh` injects it into `CFBundleVersion`/`CFBundleShortVersionString` and into the DMG name. Bump it there, nowhere else.
+`VERSION` at the repo root is the single source of truth — `build_app.sh` injects it into `CFBundleVersion`/`CFBundleShortVersionString` and into the DMG/zip names. Bump it through `scripts/release.sh`, never by editing the Info.plist.
 
-`scripts/install.sh` updates `/Applications/AlejoVoice.app` **in place** (`rsync -a --delete`, same path, same bundle id `com.alejo.alejovoice`) so macOS sees an update rather than a second app, and installs a LaunchAgent (`com.alejo.alejovoice`) with `RunAtLoad` + `KeepAlive`/`SuccessfulExit=false` — restart on crash, stay closed on a clean quit from the menu.
+The shape of the whole pipeline:
 
-`scripts/setup_signing.sh` creates a self-signed `AlejoVoice Self Signed` identity; `build_app.sh` uses it when present and falls back to ad-hoc. This matters because ad-hoc signatures change every build, so TCC keys on the changing cdhash and re-prompts for Microphone/Accessibility on every update. Keep the bundle identifier pinned via `--identifier com.alejo.alejovoice` in both signing paths.
+- **First install only**: the DMG. `scripts/release.sh <version>` tags and pushes; `.github/workflows/release.yml` builds on a `macos-15` (arm64) runner and attaches `AlejoVoice-<v>-arm64.dmg` + `AlejoVoice-<v>-arm64.zip` to the GitHub release. Repo is public so the updater can read the API unauthenticated.
+- **Every update after that**: `Updater` (Ajustes → Buscar actualizaciones) reads `releases/latest`, downloads the **zip** asset, verifies signature + bundle id, then execs a detached shell script that waits for the app to exit, `rsync`s the new bundle over `/Applications/AlejoVoice.app` and relaunches. Same path + same bundle id is what makes macOS treat it as an update and keep the TCC grants. A running app cannot overwrite itself — hence the detached script.
+- `scripts/update.sh` is the local/dev equivalent (build working copy → swap in place), no release involved.
+
+Two things are load-bearing and easy to break:
+
+- **Signing identity stability.** `scripts/setup_signing.sh` creates a self-signed `AlejoVoice Self Signed` identity and stashes the p12 under `~/Library/Application Support/AlejoVoice/signing/`; `scripts/export_signing_secrets.sh` pushes it to Actions as `MACOS_CERT_P12`/`MACOS_CERT_PASSWORD`, and the release workflow imports and trusts it. Without those secrets CI signs ad-hoc, the cdhash changes every build, and TCC re-prompts every user for Microphone + Accessibility after each update. Both signing paths pin `--identifier com.alejo.alejovoice`.
+- **DMG window styling.** The pretty installer window (background, icon positions, hidden toolbar) lives in the volume's `.DS_Store`, which only Finder can author — impossible on a headless runner. `scripts/dmg/DS_Store` is a committed copy that `build_app.sh` drops into the staging folder; `--restyle` re-authors it via AppleScript on a GUI machine and saves it back. Two gotchas already paid for: the background must be set as `POSIX file` (the `file ".background:background.tiff"` colon form fails `-10006` on current macOS), and the volume must be mounted under `/Volumes` (Finder cannot see a private `-mountpoint`). Also: the background art is drawn mid-tone on purpose — Finder paints icon labels black in light mode and white in dark mode and that color is not settable, so a near-black background made the labels vanish.

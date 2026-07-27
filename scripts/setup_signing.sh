@@ -10,6 +10,9 @@ set -euo pipefail
 
 CN="AlejoVoice Self Signed"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+# The exported identity is kept here so scripts/export_signing_secrets.sh can hand the
+# very same cert to GitHub Actions — `security export` cannot pick one identity by name.
+VAULT="$HOME/Library/Application Support/AlejoVoice/signing"
 
 if security find-identity -v -p codesigning | grep -q "$CN"; then
   echo "==> Identity '$CN' already exists — nothing to do."
@@ -18,6 +21,7 @@ fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
+P12_PASSWORD="$(uuidgen)"
 
 echo "==> Generating certificate"
 openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
@@ -28,13 +32,20 @@ openssl req -x509 -newkey rsa:2048 -sha256 -days 3650 -nodes \
   -addext "extendedKeyUsage=critical,codeSigning" >/dev/null 2>&1
 
 openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
-  -out "$TMP/identity.p12" -passout pass: >/dev/null 2>&1
+  -out "$TMP/identity.p12" -passout pass:"$P12_PASSWORD" >/dev/null 2>&1
 
 echo "==> Importing into the login keychain"
-security import "$TMP/identity.p12" -k "$KEYCHAIN" -P "" -A >/dev/null
+security import "$TMP/identity.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -A >/dev/null
 
 echo "==> Trusting it for code signing (password prompt incoming)"
 security add-trusted-cert -r trustRoot -p codeSign -k "$KEYCHAIN" "$TMP/cert.pem"
+
+echo "==> Stashing the identity for CI use in $VAULT"
+mkdir -p "$VAULT"
+cp "$TMP/identity.p12" "$VAULT/identity.p12"
+printf '%s' "$P12_PASSWORD" > "$VAULT/identity.pass"
+chmod 700 "$VAULT"
+chmod 600 "$VAULT/identity.p12" "$VAULT/identity.pass"
 
 echo "==> Done. scripts/build_app.sh will now sign with '$CN'."
 echo "    First run after switching identities still asks for Microphone and"
