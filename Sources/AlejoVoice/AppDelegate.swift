@@ -122,8 +122,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isBusy = false
         panel.orderOut(nil)
         guard !text.isEmpty else { return }
-        if !Paster.paste(text) {
-            showError("Texto copiado al portapapeles (Cmd+V para pegar). Para pegado automático: Ajustes del Sistema → Privacidad y seguridad → Accesibilidad → activa AlejoVoice.")
+        if Paster.insert(text) == .clipboard {
+            showError("Texto copiado al portapapeles (Cmd+V para pegar). Para escritura automática: Ajustes del Sistema → Privacidad y seguridad → Accesibilidad → activa AlejoVoice.")
         }
     }
 

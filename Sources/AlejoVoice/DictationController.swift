@@ -31,6 +31,12 @@ final class DictationController {
         recorder.onChunk = { [weak self] chunk, rms in
             self?.handle(chunk: chunk, rms: rms)
         }
+        recorder.onDeviceChange = { [weak self] in
+            // Headphones plugged in / device switched mid-dictation: deliver what we
+            // already captured instead of leaving the session hanging.
+            guard let self, self.isActive else { return }
+            self.finishNow()
+        }
     }
 
     func start() throws {
