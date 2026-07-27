@@ -1,6 +1,6 @@
 #!/bin/bash
 # Publishes a version. Bumps VERSION, commits, tags and pushes — GitHub Actions
-# (.github/workflows/release.yml) builds the DMG + update zip on an arm64 runner and
+# (.github/workflows/build.yml) builds the DMG + update zip on an arm64 runner and
 # creates the release. The in-app updater reads that release, so this is the single
 # command that ships an update to an installed app.
 #
@@ -60,8 +60,8 @@ if [[ "$MODE" == "--local" ]]; then
   echo "==> Publicado desde este Mac."
 else
   echo "==> GitHub Actions está construyendo el release:"
-  gh run list --workflow release.yml --limit 1 || true
-  echo "    seguimiento: gh run watch \$(gh run list --workflow release.yml --limit 1 --json databaseId -q '.[0].databaseId')"
+  gh run list --workflow build.yml --limit 1 || true
+  echo "    seguimiento: gh run watch \$(gh run list --workflow build.yml --limit 1 --json databaseId -q '.[0].databaseId')"
 fi
 
 echo "==> Cuando el release esté listo: AlejoVoice → Ajustes → Buscar actualizaciones"

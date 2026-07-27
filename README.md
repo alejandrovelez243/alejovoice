@@ -20,15 +20,17 @@ Vive en la barra de menú (icono de onda de sonido). Desde ahí: iniciar/detener
 
 ### [⬇︎ Descargar AlejoVoice (Apple Silicon)](https://github.com/alejandrovelez243/alejovoice/releases/latest/download/AlejoVoice-arm64.dmg)
 
-Ese enlace apunta siempre a la última versión publicada (GitHub resuelve `releases/latest/download/…` a la release más reciente, y el workflow sube una copia con nombre fijo para eso). Ábrelo y arrastra AlejoVoice a Aplicaciones. Solo la primera vez.
+Ese enlace apunta siempre a la última versión publicada (GitHub resuelve `releases/latest/download/…` a la release más reciente, y el workflow sube una copia con nombre fijo para eso). Solo se usa la primera vez.
 
-La primera vez macOS dirá **"Apple could not verify AlejoVoice"**: la app no está notarizada (eso requiere cuenta de developer de pago) y el navegador la marcó en cuarentena. Quita la marca una vez:
+Abre el DMG y **doble clic en "Instalar AlejoVoice"**: copia la app a Aplicaciones, le quita la marca de cuarentena y la abre. Si macOS bloquea también el instalador: clic derecho → *Abrir*.
+
+Por qué hace falta ese paso: la app no está notarizada (requiere cuenta de developer de pago), así que Gatekeeper rechaza cualquier copia que venga marcada por el navegador con **"Apple could not verify AlejoVoice"**. Si prefieres arrastrarla a mano, quita la marca tú:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/AlejoVoice.app
 ```
 
-O por UI: *Done* en el diálogo → Ajustes del Sistema → Privacidad y seguridad → **Abrir de todas formas**. Las actualizaciones desde la propia app no pasan por Gatekeeper, así que esto es solo para la instalación inicial.
+Las actualizaciones desde la propia app no pasan por Gatekeeper, así que esto es solo para la instalación inicial.
 
 Al arrancar desde `/Applications` la app se registra sola como agente de login (vía `SMAppService`, con el plist dentro del bundle): arranca al iniciar sesión y vuelve si se cae. "Salir de AlejoVoice" desde el menú la deja cerrada.
 
@@ -43,7 +45,7 @@ Al arrancar desde `/Applications` la app se registra sola como agente de login (
 ./scripts/release.sh 1.2.0 --local    # construir y publicar desde este Mac
 ```
 
-GitHub Actions (`.github/workflows/release.yml`) compila en un runner arm64 y sube el DMG y el zip a la release del tag. Eso es lo que ve el botón "Buscar actualizaciones".
+GitHub Actions (`.github/workflows/build.yml`) compila en un runner arm64 y, cuando el push es de un tag `v*`, sube el DMG y el zip a la release en el mismo run. Eso es lo que ve el botón "Buscar actualizaciones".
 
 Firma: por defecto ad-hoc, y una firma ad-hoc cambia en cada build, así que macOS vuelve a pedir Micrófono y Accesibilidad tras cada actualización. Para evitarlo, una vez:
 

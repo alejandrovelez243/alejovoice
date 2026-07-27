@@ -1,22 +1,25 @@
-name: Release
+name: Build
 
-# Push a tag (scripts/release.sh does it) and this builds the app, the installer DMG
-# and the update zip, then publishes them as a GitHub release. The in-app updater
-# reads that release, so this workflow is what ships updates.
+# One pipeline for everything: every push builds the app, the installer DMG and the
+# update zip; a push of a v* tag additionally publishes them as a GitHub release. The
+# publish steps live in the same run as the build, so nothing gets released unless the
+# build that produced it passed.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing tag to build and release (e.g. v1.2.0)"
-        required: true
+        description: "Existing tag to build and (re)publish, e.g. v1.2.0"
+        required: false
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     # arm64 runner: the app is Apple Silicon only.
     runs-on: macos-15
     env:
@@ -30,6 +33,16 @@ jobs:
       - name: Resolve version
         id: version
         run: echo "value=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether this run publishes
+        id: mode
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ] || \
+             [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Cache whisper.cpp build
         uses: actions/cache@v4
@@ -76,7 +89,25 @@ jobs:
         # no Finder session on the runner to author one.
         run: ./scripts/build_app.sh
 
+      - name: Verify the bundle
+        run: |
+          codesign --verify --deep dist/AlejoVoice.app
+          test -f "dist/AlejoVoice.app/Contents/Library/LaunchAgents/com.alejo.alejovoice.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
+            dist/AlejoVoice.app/Contents/Info.plist
+
+      - name: Upload build artifacts
+        # Lets a plain push (or PR) be downloaded and tried without cutting a release.
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlejoVoice-${{ steps.version.outputs.value }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          retention-days: 14
+
       - name: Add version-less copies
+        if: steps.mode.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.version.outputs.value }}
         # GitHub serves /releases/latest/download/<asset> as a permanent link to the
@@ -87,21 +118,16 @@ jobs:
           cp "dist/AlejoVoice-$VERSION-arm64.zip" dist/AlejoVoice-arm64.zip
 
       - name: Publish release
+        if: steps.mode.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           NOTES=$(cat <<EOF
-          **Instalación nueva:** descarga \`AlejoVoice-$VERSION-arm64.dmg\`, ábrelo y arrastra la app a Aplicaciones.
+          **Instalación nueva:** descarga \`AlejoVoice-$VERSION-arm64.dmg\`, ábrelo y haz doble clic en **Instalar AlejoVoice** — copia la app a Aplicaciones y le quita la marca de cuarentena.
 
-          Al abrirla por primera vez macOS dirá *"Apple could not verify AlejoVoice"*: la app no está notarizada (eso requiere cuenta de developer de pago) y viene marcada en cuarentena por el navegador. Quita la marca una vez:
-
-          \`\`\`sh
-          xattr -dr com.apple.quarantine /Applications/AlejoVoice.app
-          \`\`\`
-
-          O por UI: *Done* → Ajustes del Sistema → Privacidad y seguridad → **Abrir de todas formas**.
+          Si macOS bloquea también el instalador: clic derecho → *Abrir*. La app no está notarizada (eso requiere cuenta de developer de pago), así que Gatekeeper la rechaza mientras tenga la marca del navegador.
 
           **Ya lo tienes instalado:** no descargues nada — AlejoVoice → Ajustes → *Buscar actualizaciones* (esa vía no pasa por Gatekeeper).
 
