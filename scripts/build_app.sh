@@ -41,6 +41,39 @@ cp scripts/Info.plist "$APP/Contents/"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 
+# Login agent shipped inside the bundle and registered with SMAppService, so macOS
+# shows the app (name + icon) in Login Items / Background Activity instead of a bare
+# executable. BundleProgram is resolved relative to the bundle root.
+mkdir -p "$APP/Contents/Library/LaunchAgents"
+cat > "$APP/Contents/Library/LaunchAgents/com.alejo.alejovoice.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.alejo.alejovoice</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/AlejoVoice</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<!-- Restart after a crash, but honour "Salir de AlejoVoice" (clean exit). -->
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.alejo.alejovoice</string>
+	</array>
+</dict>
+</plist>
+PLIST
+
 echo "==> Generating icon"
 ICON_TMP="$(mktemp -d)"
 swift scripts/make_icon.swift "$ICON_TMP/icon_1024.png" >/dev/null
@@ -78,8 +111,8 @@ if [[ $MAKE_DMG == 1 ]]; then
   mkdir -p "$STAGE/.background"
 
   echo "==> Rendering installer background"
-  swift scripts/make_dmg_background.swift "$ICON_TMP/bg.png" 640 420 "$VERSION" >/dev/null
-  swift scripts/make_dmg_background.swift "$ICON_TMP/bg@2x.png" 1280 840 "$VERSION" >/dev/null
+  swift scripts/make_dmg_background.swift "$ICON_TMP/bg.png" 640 480 "$VERSION" >/dev/null
+  swift scripts/make_dmg_background.swift "$ICON_TMP/bg@2x.png" 1280 960 "$VERSION" >/dev/null
   # A multi-representation TIFF is what makes the background crisp on Retina.
   tiffutil -cathidpicheck "$ICON_TMP/bg.png" "$ICON_TMP/bg@2x.png" \
     -out "$STAGE/.background/background.tiff" >/dev/null
@@ -87,6 +120,10 @@ if [[ $MAKE_DMG == 1 ]]; then
   echo "==> Creating DMG"
   cp -R "$APP" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
+  # Double-click installer: copies the app AND clears com.apple.quarantine, which is
+  # what Gatekeeper trips over on an app that is not notarized (no paid Developer ID).
+  cp "$ROOT/scripts/dmg/Instalar $APP_NAME.command" "$STAGE/"
+  chmod +x "$STAGE/Instalar $APP_NAME.command"
   # Custom volume icon: the mounted disk shows the app icon, not a generic drive.
   cp "$APP/Contents/Resources/AppIcon.icns" "$STAGE/.VolumeIcon.icns"
 
@@ -110,9 +147,12 @@ if [[ $MAKE_DMG == 1 ]]; then
   hdiutil attach "$RW_DMG" -noverify >/dev/null
   MOUNT="/Volumes/$VOLNAME"
 
-  if command -v SetFile >/dev/null 2>&1; then
-    SetFile -a C "$MOUNT" 2>/dev/null || true
-  fi
+  # Turn on the volume's "has custom icon" Finder flag (byte 8 of FinderInfo, 0x0400)
+  # so .VolumeIcon.icns is used. SetFile would need ownership of the volume, which a
+  # freshly attached image does not grant.
+  xattr -wx com.apple.FinderInfo \
+    "0000000000000000040000000000000000000000000000000000000000000000" \
+    "$MOUNT" 2>/dev/null || true
 
 if [[ $STYLE_WITH_FINDER == 1 ]]; then
   echo "==> Styling window with Finder"
@@ -120,31 +160,49 @@ if [[ $STYLE_WITH_FINDER == 1 ]]; then
   # addressed as a POSIX file — the classic `file ".background:background.tiff"`
   # colon form fails with -10006 on current macOS. First run may ask for permission
   # to control Finder; if it is denied the DMG still works, it just looks plain.
-  osascript >/dev/null <<APPLESCRIPT || echo "    (Finder styling skipped — grant automation access to style the DMG)"
+  STYLED=1
+  osascript >/dev/null <<APPLESCRIPT || STYLED=0
 tell application "Finder"
 	tell disk "$VOLNAME"
 		open
 		set current view of container window to icon view
 		set toolbar visible of container window to false
 		set statusbar visible of container window to false
-		set the bounds of container window to {240, 140, 880, 560}
+		set the bounds of container window to {240, 140, 880, 620}
 		set opts to the icon view options of container window
 		set arrangement of opts to not arranged
-		set icon size of opts to 116
+		set icon size of opts to 112
 		set text size of opts to 13
 		set background picture of opts to POSIX file "$MOUNT/.background/background.tiff"
-		set position of item "$APP_NAME.app" of container window to {160, 205}
-		set position of item "Applications" of container window to {480, 205}
-		update without registering applications
-		close
+		-- Let Finder notice every freshly copied item before positioning it, otherwise
+		-- \`set position\` fails with -10006 on the last file written.
+		delay 1
+		set position of item "$APP_NAME.app" of container window to {160, 200}
+		set position of item "Applications" of container window to {480, 200}
+		set position of item "Instalar $APP_NAME.command" of container window to {320, 372}
+		delay 1
+		-- Both of these throw "Finder is busy" now and then; the layout is already in
+		-- the .DS_Store by this point, so a failure here must not fail the build.
+		try
+			update without registering applications
+		end try
+		delay 1
+		try
+			close
+		end try
 	end tell
 end tell
 APPLESCRIPT
 
-  # Keep the freshly authored layout so headless builds can reuse it.
-  mkdir -p "$ROOT/scripts/dmg"
-  cp "$MOUNT/.DS_Store" "$ROOT/scripts/dmg/DS_Store" 2>/dev/null \
-    && echo "    saved scripts/dmg/DS_Store"
+  if [[ $STYLED == 1 ]]; then
+    # Keep the freshly authored layout so headless builds can reuse it.
+    mkdir -p "$ROOT/scripts/dmg"
+    cp "$MOUNT/.DS_Store" "$ROOT/scripts/dmg/DS_Store" \
+      && echo "    saved scripts/dmg/DS_Store"
+  else
+    echo "    (Finder styling failed — kept the committed scripts/dmg/DS_Store)"
+    cp "$ROOT/scripts/dmg/DS_Store" "$MOUNT/.DS_Store" 2>/dev/null || true
+  fi
 fi
 
   sync

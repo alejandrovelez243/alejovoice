@@ -184,12 +184,10 @@ final class Updater: NSObject, ObservableObject {
           i=$((i + 1))
         done
         /usr/bin/rsync -a --delete "\(newApp)/" "\(target)/"
-        agent="$HOME/Library/LaunchAgents/\(label).plist"
-        if [ -f "$agent" ]; then
-          /bin/launchctl kickstart -k "gui/$(id -u)/\(label)" || /usr/bin/open "\(target)"
-        else
+        # Restart through launchd when the login agent is registered, so KeepAlive keeps
+        # tracking the new binary; plain `open` otherwise.
+        /bin/launchctl kickstart -k "gui/$(id -u)/\(label)" 2>/dev/null ||
           /usr/bin/open "\(target)"
-        fi
         rm -rf "\(staging)"
         """
     }

@@ -6,9 +6,9 @@ import AppKit
 let args = CommandLine.arguments
 let outputPath = args.count > 1 ? args[1] : "dmg_background.png"
 let width = CGFloat(args.count > 2 ? Double(args[2]) ?? 640 : 640)
-let height = CGFloat(args.count > 3 ? Double(args[3]) ?? 420 : 420)
+let height = CGFloat(args.count > 3 ? Double(args[3]) ?? 480 : 480)
 let version = args.count > 4 ? args[4] : ""
-// Everything is authored against a 640×420 reference layout and scaled from there,
+// Everything is authored against a 640×480 reference layout and scaled from there,
 // so the same code renders the @1x and @2x slices.
 let s = width / 640
 
@@ -53,14 +53,15 @@ func glow(_ color: CGColor, at point: CGPoint, radius: CGFloat) {
 // the Applications folder. They also lift the luminance right where the labels sit.
 ctx.saveGState()
 ctx.setBlendMode(.softLight)
-glow(rgb(0.35, 1.0, 0.70, 0.45), at: CGPoint(x: 160 * s, y: height - 212 * s), radius: 260 * s)
-glow(rgb(0.45, 0.92, 1.0, 0.30), at: CGPoint(x: 480 * s, y: height - 212 * s), radius: 250 * s)
+glow(rgb(0.35, 1.0, 0.70, 0.45), at: CGPoint(x: 160 * s, y: height - 205 * s), radius: 260 * s)
+glow(rgb(0.45, 0.92, 1.0, 0.30), at: CGPoint(x: 480 * s, y: height - 205 * s), radius: 250 * s)
+glow(rgb(0.35, 1.0, 0.70, 0.30), at: CGPoint(x: 320 * s, y: height - 380 * s), radius: 200 * s)
 ctx.restoreGState()
 
 // Arrow from the app to the Applications folder: dashed track + solid head. Deep
 // emerald, dark enough to read against the mid-tone base.
 let emerald = rgb(0.04, 0.42, 0.30, 0.95)
-let arrowY = height - 205 * s
+let arrowY = height - 200 * s
 ctx.saveGState()
 ctx.setStrokeColor(emerald.copy(alpha: 0.45)!)
 ctx.setLineWidth(2 * s)
@@ -101,13 +102,20 @@ let ink = NSColor(calibratedRed: 0.05, green: 0.14, blue: 0.12, alpha: 1)
 let inkSoft = NSColor(calibratedRed: 0.09, green: 0.22, blue: 0.19, alpha: 1)
 let inkFaint = NSColor(calibratedRed: 0.14, green: 0.28, blue: 0.25, alpha: 1)
 
-draw("AlejoVoice", size: 30, weight: .semibold, color: ink, centerY: 52, tracking: 0.5)
+draw("AlejoVoice", size: 30, weight: .semibold, color: ink, centerY: 48, tracking: 0.5)
 let subtitle = version.isEmpty ? "Dictado por voz local" : "Dictado por voz local · v\(version)"
-draw(subtitle, size: 13, weight: .regular, color: inkSoft, centerY: 82)
-draw("Arrastra AlejoVoice a la carpeta Aplicaciones", size: 13, weight: .semibold,
-     color: ink, centerY: 340)
-draw("Para actualizar no hace falta el DMG: Ajustes → Buscar actualizaciones",
-     size: 11, weight: .regular, color: inkFaint, centerY: 366)
+draw(subtitle, size: 13, weight: .regular, color: inkSoft, centerY: 76)
+
+draw("1 · Arrastra AlejoVoice a la carpeta Aplicaciones", size: 13, weight: .semibold,
+     color: ink, centerY: 300)
+draw("2 · Doble clic aquí para abrirla la primera vez", size: 13, weight: .semibold,
+     color: ink, centerY: 328)
+// macOS blocks a non-notarized app on first launch; the installer script is the
+// no-Terminal way out, and it needs the right-click hint to get past the same check.
+draw("(si macOS también bloquea el instalador: clic derecho → Abrir)",
+     size: 11, weight: .regular, color: inkFaint, centerY: 440)
+draw("Después, para actualizar: Ajustes → Buscar actualizaciones",
+     size: 11, weight: .regular, color: inkFaint, centerY: 460)
 
 NSGraphicsContext.restoreGraphicsState()
 

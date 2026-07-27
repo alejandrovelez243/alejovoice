@@ -30,7 +30,7 @@ xattr -dr com.apple.quarantine /Applications/AlejoVoice.app
 
 O por UI: *Done* en el diálogo → Ajustes del Sistema → Privacidad y seguridad → **Abrir de todas formas**. Las actualizaciones desde la propia app no pasan por Gatekeeper, así que esto es solo para la instalación inicial.
 
-Al arrancar desde `/Applications` la app se registra sola como agente de login (`~/Library/LaunchAgents/com.alejo.alejovoice.plist`): arranca al iniciar sesión y vuelve si se cae. "Salir de AlejoVoice" desde el menú la deja cerrada.
+Al arrancar desde `/Applications` la app se registra sola como agente de login (vía `SMAppService`, con el plist dentro del bundle): arranca al iniciar sesión y vuelve si se cae. "Salir de AlejoVoice" desde el menú la deja cerrada.
 
 ## Actualizar
 
