@@ -11,6 +11,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isBusy = false // transcribing tail or downloading
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // launchd (login agent) and a manual launch can both start a copy; two status
+        // items and two global hotkey monitors is never what the user wants.
+        guard Self.isOnlyInstance() else {
+            NSApp.terminate(nil)
+            return
+        }
+
         setupStatusItem()
 
         panel = RecordingPanel(
@@ -57,11 +64,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Ajustes…", action: #selector(openSettings), keyEquivalent: ",")
         menu.addItem(withTitle: "Buscar actualizaciones…", action: #selector(checkForUpdates), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Salir de AlejoVoice", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: "Salir de AlejoVoice", action: #selector(quitApp), keyEquivalent: "q")
         statusItem.menu = menu
     }
 
     @objc private func menuToggle() { toggle() }
+
+    /// "Salir" must actually stay closed: the login agent is `KeepAlive`, so the job has
+    /// to be booted out of this login session before exiting — otherwise launchd brings
+    /// the process straight back. It loads again at the next login.
+    @objc private func quitApp() {
+        dictation.cancel()
+        LoginAgent.stopForThisSession()
+        NSApp.terminate(nil)
+    }
+
+    private static func isOnlyInstance() -> Bool {
+        guard let id = Bundle.main.bundleIdentifier else { return true }
+        let me = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: id)
+            .allSatisfy { $0.processIdentifier == me }
+    }
 
     @MainActor
     @objc private func checkForUpdates() {
@@ -178,7 +201,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Only ever prompts when the permission is actually missing — passing the prompt
+    /// option unconditionally re-opened System Settings on every single launch.
     private func requestAccessibilityIfNeeded() {
+        guard !AXIsProcessTrusted() else { return }
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }

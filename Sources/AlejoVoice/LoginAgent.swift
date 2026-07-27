@@ -46,16 +46,27 @@ enum LoginAgent {
         try? SMAppService.agent(plistName: "\(label).plist").unregister()
     }
 
+    /// Unloads the job from the current login session so `KeepAlive` cannot relaunch the
+    /// app after the user chooses "Salir". The registration survives, so it starts again
+    /// at the next login. Blocks briefly on purpose: this runs just before exiting.
+    static func stopForThisSession() {
+        launchctl(["bootout", "gui/\(getuid())/\(label)"])
+    }
+
     /// A stale user-domain agent would launch a second copy alongside the registered one.
     private static func removeLegacyAgent() {
         guard FileManager.default.fileExists(atPath: legacyPlistURL.path) else { return }
+        launchctl(["bootout", "gui/\(getuid())/\(label)"])
+        try? FileManager.default.removeItem(at: legacyPlistURL)
+    }
+
+    private static func launchctl(_ arguments: [String]) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-        process.arguments = ["bootout", "gui/\(getuid())/\(label)"]
+        process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try? process.run()
         process.waitUntilExit()
-        try? FileManager.default.removeItem(at: legacyPlistURL)
     }
 }
