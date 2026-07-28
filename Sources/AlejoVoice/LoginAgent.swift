@@ -1,63 +1,55 @@
 import AppKit
 import ServiceManagement
 
-/// Launch at login + come back after a crash (`KeepAlive`/`SuccessfulExit=false`, so
-/// quitting from the menu keeps it closed).
+/// Launch at login, as a plain login item (`SMAppService.mainApp`).
 ///
-/// The agent is registered through `SMAppService` from a plist **inside** the bundle
-/// (`Contents/Library/LaunchAgents/`). Writing a plist into `~/Library/LaunchAgents`
-/// pointing at `…/Contents/MacOS/AlejoVoice` also works, but then macOS attributes the
-/// job to a bare executable: Login Items / Background Activity shows a generic "exec"
-/// icon with no app name. Registered from the bundle, it shows the app.
+/// This deliberately does **not** use a `KeepAlive` LaunchAgent any more. A launchd-owned
+/// process is not a regular GUI app as far as TCC is concerned, and macOS then silently
+/// skips the Microphone and Accessibility prompts — the permissions could never be
+/// granted on a fresh install. The agent only existed to restart the app after crashes
+/// that are now fixed at the source (stale `AVAudioEngine` on device change, and ggml's
+/// Metal backend aborting in its static destructor at exit).
 enum LoginAgent {
     static let label = "com.alejo.alejovoice"
 
-    /// Legacy location used before the switch to SMAppService.
     private static var legacyPlistURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents/\(label).plist")
     }
 
     static func ensureInstalled() {
-        // Only manage the agent for a real install: never point it at a DMG volume or
-        // at a build directory.
+        // Only manage this for a real install: never register a DMG volume or a build
+        // directory as a login item.
         guard Bundle.main.bundlePath.hasPrefix("/Applications/") else { return }
 
-        removeLegacyAgent()
+        removeLegacyAgents()
 
-        let service = SMAppService.agent(plistName: "\(label).plist")
-        switch service.status {
-        case .enabled:
-            return
-        case .requiresApproval:
-            NSLog("AlejoVoice: login agent needs approval in System Settings → Login Items")
-            return
-        default:
-            do {
-                try service.register()
-            } catch {
-                NSLog("AlejoVoice: could not register login agent — \(error.localizedDescription)")
-            }
+        let app = SMAppService.mainApp
+        guard app.status != .enabled else { return }
+        do {
+            try app.register()
+        } catch {
+            NSLog("AlejoVoice: could not register login item — \(error.localizedDescription)")
         }
     }
 
     static func remove() {
-        removeLegacyAgent()
-        try? SMAppService.agent(plistName: "\(label).plist").unregister()
+        removeLegacyAgents()
+        try? SMAppService.mainApp.unregister()
     }
 
-    /// Unloads the job from the current login session so `KeepAlive` cannot relaunch the
-    /// app after the user chooses "Salir". The registration survives, so it starts again
-    /// at the next login. Blocks briefly on purpose: this runs just before exiting.
-    static func stopForThisSession() {
+    /// Clears both earlier mechanisms: the bundled LaunchAgent registered through
+    /// SMAppService, and the hand-written plist in ~/Library/LaunchAgents. Either one
+    /// would keep launching a second, launchd-owned copy.
+    private static func removeLegacyAgents() {
+        let agent = SMAppService.agent(plistName: "\(label).plist")
+        if agent.status != .notRegistered {
+            try? agent.unregister()
+        }
         launchctl(["bootout", "gui/\(getuid())/\(label)"])
-    }
-
-    /// A stale user-domain agent would launch a second copy alongside the registered one.
-    private static func removeLegacyAgent() {
-        guard FileManager.default.fileExists(atPath: legacyPlistURL.path) else { return }
-        launchctl(["bootout", "gui/\(getuid())/\(label)"])
-        try? FileManager.default.removeItem(at: legacyPlistURL)
+        if FileManager.default.fileExists(atPath: legacyPlistURL.path) {
+            try? FileManager.default.removeItem(at: legacyPlistURL)
+        }
     }
 
     private static func launchctl(_ arguments: [String]) {

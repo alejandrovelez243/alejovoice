@@ -41,39 +41,6 @@ cp scripts/Info.plist "$APP/Contents/"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 
-# Login agent shipped inside the bundle and registered with SMAppService, so macOS
-# shows the app (name + icon) in Login Items / Background Activity instead of a bare
-# executable. BundleProgram is resolved relative to the bundle root.
-mkdir -p "$APP/Contents/Library/LaunchAgents"
-cat > "$APP/Contents/Library/LaunchAgents/com.alejo.alejovoice.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key>
-	<string>com.alejo.alejovoice</string>
-	<key>BundleProgram</key>
-	<string>Contents/MacOS/AlejoVoice</string>
-	<key>RunAtLoad</key>
-	<true/>
-	<key>KeepAlive</key>
-	<dict>
-		<!-- Restart after a crash, but honour "Salir de AlejoVoice" (clean exit). -->
-		<key>SuccessfulExit</key>
-		<false/>
-	</dict>
-	<key>LimitLoadToSessionType</key>
-	<string>Aqua</string>
-	<key>ProcessType</key>
-	<string>Interactive</string>
-	<key>AssociatedBundleIdentifiers</key>
-	<array>
-		<string>com.alejo.alejovoice</string>
-	</array>
-</dict>
-</plist>
-PLIST
-
 echo "==> Generating icon"
 ICON_TMP="$(mktemp -d)"
 swift scripts/make_icon.swift "$ICON_TMP/icon_1024.png" >/dev/null
@@ -91,7 +58,10 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 # Ad-hoc signatures change every build, which is why permissions used to reset.
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_IDENTITY_NAME"; then
   echo "==> Signing with '$SIGN_IDENTITY_NAME'"
+  # --options runtime (Hardened Runtime) gates device access behind entitlements: the
+  # microphone one is mandatory or requestAccess() is denied instantly, with no prompt.
   codesign --force --deep --options runtime \
+    --entitlements scripts/AlejoVoice.entitlements \
     --identifier com.alejo.alejovoice \
     --sign "$SIGN_IDENTITY_NAME" "$APP"
 else
