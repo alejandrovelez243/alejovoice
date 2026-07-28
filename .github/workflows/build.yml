@@ -99,7 +99,9 @@ jobs:
       - name: Verify the bundle
         run: |
           codesign --verify --deep dist/AlejoVoice.app
-          test -f "dist/AlejoVoice.app/Contents/Library/LaunchAgents/com.alejo.alejovoice.plist"
+          # No LaunchAgent plist any more: launch at login is a plain login item
+          # (SMAppService.mainApp), because a launchd-owned process never gets the
+          # TCC prompts. See LoginAgent.
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" \
             dist/AlejoVoice.app/Contents/Info.plist
 
