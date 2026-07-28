@@ -27,6 +27,7 @@ enum HotkeyChoice: String, CaseIterable, Identifiable {
 enum AppSettings {
     private static let hotkeyKey = "hotkeyChoice"
     private static let languageKey = "language"
+    private static let inputDeviceKey = "inputDeviceUID"
 
     static var hotkey: HotkeyChoice {
         get {
@@ -41,5 +42,18 @@ enum AppSettings {
     static var language: String {
         get { UserDefaults.standard.string(forKey: languageKey) ?? "auto" }
         set { UserDefaults.standard.set(newValue, forKey: languageKey) }
+    }
+
+    /// CoreAudio UID of the microphone to record from; nil follows the system default.
+    /// A UID, not an AudioDeviceID: ids are reassigned across reboots and replugs.
+    static var inputDeviceUID: String? {
+        get { UserDefaults.standard.string(forKey: inputDeviceKey) }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(newValue, forKey: inputDeviceKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: inputDeviceKey)
+            }
+        }
     }
 }

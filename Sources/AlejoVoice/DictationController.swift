@@ -35,6 +35,7 @@ final class DictationController {
             // Headphones plugged in / device switched mid-dictation: deliver what we
             // already captured instead of leaving the session hanging.
             guard let self, self.isActive else { return }
+            Log.write("device change → finishing at t=\(self.recordedTime)")
             self.finishNow()
         }
     }
@@ -102,6 +103,7 @@ final class DictationController {
     }
 
     private func finishNow() {
+        Log.write("finishNow t=\(recordedTime) spoke=\(spokeAtAll) segments=\(nextIndex)")
         finishing = true
         recorder.stop()
         isActive = false
